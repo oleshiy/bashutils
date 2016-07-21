@@ -1,6 +1,4 @@
 #!/bin/bash
-#
-#
 # Mounted volume to be monitored.
 MOUNT="$1"
 
@@ -11,18 +9,13 @@ HOME_FOLDER="$2"
 # 95 = 95%.
 MAX_USAGE="$3"
 
-
 # Failsafe mechansim. Delete a maxium of MAX_CYCLES files, raise an error after
 # that. Prevents possible runaway script. Disable by choosing a high value.
 MAX_CYCLES=100
+CYCLES=0
 
-reset () {
-    CYCLES=0
-    OLDEST_FILE=""
-    OLDEST_DATE=0
-}
-
-reset
+# Capacity OK
+CC=1
 
 if [ -z "$MOUNT" ] || [ ! -e "$MOUNT" ] || [ ! -d "$MOUNT" ] || [ -z "$MAX_USAGE" ] || [ -z "$HOME_FOLDER" ] || [ ! -e "$HOME_FOLDER" ] || [ ! -d "$HOME_FOLDER" ]
 then
@@ -55,24 +48,12 @@ check_capacity () {
     if [ "$USAGE" -gt "$MAX_USAGE" ]
     then
         echo "Usage of $USAGE% exceeded limit of $MAX_USAGE percent."
-        return 0
+        #return 0
+        CC=0
     else
         echo "Usage of $USAGE% is within limit of $MAX_USAGE percent."
-        return 1
-    fi
-}
-
-check_age () {
-
-    FILE="$1"
-    FILE_DATE=`stat -c %Z "$FILE"`
-
-    NOW=`date +%s`
-    AGE=$((NOW-FILE_DATE))
-    if [ "$AGE" -gt "$OLDEST_DATE" ]
-    then
-        export OLDEST_DATE="$AGE"
-        export OLDEST_FILE="$FILE"
+        #return 1
+		CC=1
     fi
 }
 
@@ -84,38 +65,36 @@ process_file () {
     # Replace the following commands with wathever you want to do with
     # this file. You can delete files but also move files or do something else.
     #
-    echo "Deleting oldest file $FILE"
+    echo "Deleting file $FILE"
     rm -f "$FILE"
 }
 
-while check_capacity
-do
-	echo "$CYCLES  / $MAX_CYCLES"
-    if [ "$CYCLES" -gt "$MAX_CYCLES" ]
-    then
-        echo "Error: after $MAX_CYCLES deleted files still not enough free space."
-        exit 1
-    fi
 
-    #reset
+FILES=`find "$HOME_FOLDER" -type f -print0 | xargs -r0 stat -c %y\ %n | sort | awk {'print $4'}`
 
-    FILES=`find "$HOME_FOLDER" -type f`
+check_capacity
+if [ "$CC" -eq 0  ] 
+then
+	for x in $FILES
+	do
+		echo "---------------------"
+		echo $x
+		check_capacity	
+		# Failsafe 
+		echo "$CYCLES  / $MAX_CYCLES"
+		if [ "$CYCLES" -gt "$MAX_CYCLES" ]
+		then
+			echo "After $MAX_CYCLES exit."
+			exit 1
+		fi
+		if [ "$CC" -eq 0  ] 
+		then
+			process_file "$x"
+		else
+	        exit 1
+		fi
+		((CYCLES++))
+	done
+fi
 
-    IFS=$'\n'
-    for x in $FILES
-    do
-        check_age "$x"
-    done
-
-    if [ -e "$OLDEST_FILE" ]
-    then
-        #
-        # Do something with file.
-        #
-        process_file "$OLDEST_FILE"
-    else
-        echo "Error: somehow, item $OLDEST_FILE disappeared."
-    fi
-    ((CYCLES++))
-done
 echo
